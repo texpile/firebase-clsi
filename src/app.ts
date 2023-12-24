@@ -2,7 +2,6 @@ import express, { Request, Response } from 'express';
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import validator from 'validator';
 
 const app = express();
 const MAX_EXECUTION_TIME = 60000; // 60 seconds
@@ -15,7 +14,6 @@ const WHITELISTED_PACKAGES = [
     'babel', 'inputenc', 'fontenc', 'lipsum', 'listings', 'color', 'xcolor',
     'float', 'caption', 'subcaption', 'tabularx', 'booktabs', 'tikz', 'pgfplots',
     'mathtools', 'url', 'algorithm2e',
-    // Add other packages you deem safe
 ];
 
 function usesOnlyWhitelistedPackages(latexContent: string): boolean {
@@ -33,8 +31,7 @@ function usesOnlyWhitelistedPackages(latexContent: string): boolean {
 }
 
 function sanitizeLatexInput(input: string): string {
-    //input = validator.escape(input);
-    input = input.replace(/[^a-zA-Z0-9\s\\{}()\[\]\.,;!?&%$#^_`~=+-]/g, '');
+    // input = input.replace(/[^a-zA-Z0-9\s\\{}()\[\]\.,;!?&%$#^_`~=+-]/g, '');
     return input;
 }
 
@@ -60,9 +57,13 @@ app.post('/compile', (req: Request, res: Response) => {
 
     console.log('Compiling LaTeX code...');
     const outputFilePath = path.join(__dirname, 'document.pdf');
-    execFile('pdflatex', [texFilePath], { timeout: MAX_EXECUTION_TIME - (Date.now() - startTime) }, (err, stdout, stderr) => {
+    execFile('pdflatex', ['-interaction=nonstopmode', '-no-shell-escape', texFilePath], { timeout: MAX_EXECUTION_TIME - (Date.now() - startTime) }, (err, stdout, stderr) => {
+        console.log('Compilation finished.');
+        console.log('stdout:', stdout);
+        console.log('stderr:', stderr);
+        console.log('err:', err);
         if (err) {
-            console.error('Error:', stderr);
+            console.error('Error:', err);
             return res.status(500).send('Error during LaTeX compilation: ' + stderr);
         }
         res.sendFile(outputFilePath);

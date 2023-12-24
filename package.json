@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc && docker build -t latexcompiler .",
-    "dev": "npm run build && docker run -p 3000:3000 -d latexcompiler"
+    "dev": "npm run build && docker run -p 8080:8080 -d latexcompiler"
   },
   "dependencies": {
     "@types/express": "^4.17.21",

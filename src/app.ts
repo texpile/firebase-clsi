@@ -4,11 +4,14 @@ import fs from "fs";
 import path from "path";
 import admin from 'firebase-admin';
 import { DecodedIdToken } from "firebase-admin/lib/auth/token-verifier";
+import { cert } from "firebase-admin/app";
 
-// Initialize Firebase
-const serviceAccount = JSON.parse(process.env.FIREBASE_ADMINSDK as string);
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+  credential: cert({
+    projectId: process.env.FB_PROJECT_ID,
+    clientEmail: process.env.FB_CLIENT_EMAIL,
+    privateKey: (process.env.FB_PRIVATE_KEY || '').replace(/\\n/g, '\n')
+  })
 });
 //firebase storge, database, and auth
 const fbstorage = admin.storage();

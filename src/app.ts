@@ -2,122 +2,97 @@ import express, { Request, Response } from "express";
 import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
-import { rimraf } from "rimraf";
-import { IncomingForm } from 'formidable';
+import admin from 'firebase-admin';
+import { DecodedIdToken } from "firebase-admin/lib/auth/token-verifier";
+
+// Initialize Firebase
+const serviceAccount = JSON.parse(process.env.FIREBASE_ADMINSDK as string);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+//firebase storge, database, and auth
+const fbstorage = admin.storage();
 
 const app = express();
-const MAX_EXECUTION_TIME = 60000; // 60 seconds
+const MAX_EXECUTION_TIME = 30000; // 30 seconds
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-const WHITELISTED_PACKAGES = [
-  "amsmath",
-  "amsfonts",
-  "amssymb",
-  "geometry",
-  "graphicx",
-  "hyperref",
-  "babel",
-  "inputenc",
-  "fontenc",
-  "lipsum",
-  "listings",
-  "color",
-  "xcolor",
-  "float",
-  "caption",
-  "subcaption",
-  "tabularx",
-  "booktabs",
-  "tikz",
-  "pgfplots",
-  "mathtools",
-  "url",
-  "algorithm2e",
-];
+interface File {
+  type: "LaTeXEntry" | "image";
+  file: string;
+  content?: string;
+  url?: string;
+}
 
-function usesOnlyWhitelistedPackages(latexContent: string): boolean {
-  const packageRegex = /\\usepackage(?:\[[^\]]*\])?\{([^\}]+)\}/g;
-  let match;
+app.post("/compile", async (req: Request, res: Response) => {
 
-  while ((match = packageRegex.exec(latexContent)) !== null) {
-    const packages = match[1].split(",").map((pkg) => pkg.trim());
-    if (packages.some((pkg) => !WHITELISTED_PACKAGES.includes(pkg))) {
-      return false;
-    }
+  reset();
+
+  const auth = req.headers?.authorization?.split(' ')[1];
+
+  if (!auth) {
+    return res.status(401).json({ message: 'Authorization header is missing or not in the correct format.' });
   }
-
-  return true;
-}
-
-function sanitizeLatexInput(input: string): string {
-  // input = input.replace(/[^a-zA-Z0-9\s\\{}()\[\]\.,;!?&%$#^_`~=+-]/g, '');
-  return input;
-}
-
-function cleanupFiles() {
-  //return;
+  // Verify the token
+  let decodedToken: DecodedIdToken; 
   try {
-    const tempDir = path.join(__dirname, "temp");
-    rimraf.sync(tempDir);
-    fs.mkdirSync(tempDir, { recursive: true });
+    decodedToken = await admin.auth().verifyIdToken(auth);
   } catch (error) {
-    console.error("Error during cleanup:", error);
-  }
-}
+    console.error('Error verifying token:', error);
+    return res.status(403).json({ message: 'Invalid or expired token.' });
+  }  
 
-app.post("/compile", (req: Request, res: Response) => {
-  cleanupFiles();
-  const startTime = Date.now();
+  const { files, outputpath: reloutputpath }: { files: File[], outputpath: string } = req.body;
 
-  const form = new IncomingForm({ uploadDir: path.join(__dirname, "temp"), keepExtensions: true });
-  form.on("file",function(field, file) {
-    fs.rename(file.filepath, path.join(__dirname, "temp") + "/" + file.originalFilename, ()=>{
-      console.log("File renamed.");
-    });
-  });
-  form.parse(req, (err, fields, files) => {
-    console.log("Received request.");
-    if (err) {
-      console.error("Error during parsing:", err);
-      return res.status(500).send("Error during parsing: " + err);
+  for (const file of files) {
+    const filePath = path.join(__dirname, "temp", file.file);
+
+    if (file.content) {
+      fs.writeFileSync(filePath, file.content);
+    } else if (file.url) {
+      // Download the file from Firebase Storage and save it to the local file system
+      const bucket = fbstorage.bucket();
+      const remoteFile = bucket.file(`users/${decodedToken.uid}/${file.url}`);
+      await remoteFile.download({ destination: filePath });
     }
 
-    // Check if the file was received
-    const uploadedFile = files.latexCode && files.latexCode[0];
-    if (!uploadedFile) {
-      return res.status(400).send("No LaTeX file provided.");
-    }
+    if (file.type === "LaTeXEntry") {
+      const outputFilePath = path.join(__dirname, "temp", `${path.basename(file.file, '.tex')}.pdf`);
 
-    const originalFileName = uploadedFile.originalFilename as string;
-    const fileBaseName = path.basename(originalFileName, '.tex');
-    const newFilePath = path.join(__dirname, "temp", originalFileName);
-    const outputFilePath = path.join(__dirname, "temp", `${fileBaseName}.pdf`);
-    console.log("Compiling LaTeX code...");
-      
-    execFile(
-      "pdflatex",
-      ["-interaction=nonstopmode", "-no-shell-escape", newFilePath],
-      {
-        cwd: path.join(__dirname, "temp"),
-        timeout: MAX_EXECUTION_TIME - (Date.now() - startTime),
-      },
-      (compileErr, stdout, stderr) => {
-        console.log("Compilation finished.");
-        console.log("stdout:", stdout);
-        console.log("stderr:", stderr);
-        console.log("err:", compileErr);
-        if (compileErr) {
-          console.error("Error during compilation:", compileErr);
-          return res.status(500).send("Error during LaTeX compilation: " + stderr);
+      execFile(
+        "pdflatex",
+        ["-interaction=nonstopmode", "-no-shell-escape", filePath],
+        {
+          cwd: path.join(__dirname, "temp"),
+          timeout: MAX_EXECUTION_TIME,
+        },
+        async (compileErr, stdout, stderr) => {
+          if (compileErr) {
+            console.error("Error during compilation:", compileErr);
+            return res.status(500).send("Error during LaTeX compilation: " + stderr);
+          }
+
+          // Upload the PDF to Firebase Storage at the specified output path
+          const bucket = fbstorage.bucket();
+          const remoteOutputFile = bucket.file(outputFilePath)
+
+          await remoteOutputFile.save(`users/${decodedToken.uid}/${reloutputpath}`, {
+            contentType: 'application/pdf',
+            public: false,
+          });
+          reset();
+          res.send(`File uploaded to: users/${decodedToken.uid}/${reloutputpath}`);
         }
-        res.sendFile(outputFilePath);
-      }
-    );
-  });
+      );
+    }
+  }
 });
 
-
+function reset() {
+  fs.rmdirSync(path.join(__dirname, "temp"), { recursive: true });
+  fs.mkdirSync(path.join(__dirname, "temp"));
+}
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {

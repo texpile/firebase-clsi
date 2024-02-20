@@ -12,8 +12,8 @@ RUN useradd -m latexuser
 
 WORKDIR /app
 
-RUN mkdir /app/temp && \
-    chown latexuser:latexuser /app/temp
+RUN mkdir /app/temp
+    # chown latexuser:latexuser /app/temp
 
 COPY package*.json /app/
 
@@ -22,7 +22,7 @@ RUN npm install
 COPY dist/ /app/
 
 # Switch to the non-root user
-USER latexuser
+# USER latexuser
 
 EXPOSE 8080
 

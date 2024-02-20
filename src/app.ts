@@ -57,17 +57,27 @@ app.post("/compile", async (req: Request, res: Response) => {
   }
   for (const file of files) {
     const filePath = path.join(__dirname, "temp", file.file);
-
-    if (file.content) {
-      fs.writeFileSync(filePath, file.content);
-    } else if (file.url) {
-      // Download the file from Firebase Storage and save it to the local file system
-      const bucket = fbstorage.bucket();
-      const remoteFile = bucket.file(`users/${decodedToken.uid}/${file.url}`);
-      await remoteFile.download({ destination: filePath });
+    if (file.type === "image") {
+      if (file.url) {
+        try {
+          const bucket = fbstorage.bucket();
+          const remoteFile = bucket.file(`users/${decodedToken.uid}/${file.url}`);
+          await remoteFile.download({ destination: filePath });
+        } catch (error) {
+          return res.status(500).send("Error downloading image from Firebase Storage: " + error);
+        }
+      } else if (file.content) {
+        //not supported return error
+        return res.status(400).send("Content not supported for image files");
+      }
     }
 
     if (file.type === "LaTeXEntry") {
+      if (file.content) {
+        fs.writeFileSync(filePath, file.content);
+      } else {
+        return res.status(400).send("Content missing for LaTeXEntry");
+      }
       const outputFilePath = path.join(
         __dirname,
         "temp",

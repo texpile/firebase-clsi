@@ -28,7 +28,7 @@ interface File {
   url?: string;
 }
 
-app.post("/compile", async (req: Request, res: Response) => {
+app.post("/api/v1/compile", async (req: Request, res: Response) => {
   reset();
 
   const auth = req.headers?.authorization?.split(" ")[1];

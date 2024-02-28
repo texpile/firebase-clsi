@@ -61,10 +61,14 @@ app.post("/v1/compile", async (req: Request, res: Response) => {
       if (file.url) {
         try {
           const bucket = fbstorage.bucket();
-          const remoteFile = bucket.file(`users/${decodedToken.uid}/${file.url}`);
+          const remoteFile = bucket.file(
+            `users/${decodedToken.uid}/${file.url}`
+          );
           await remoteFile.download({ destination: filePath });
         } catch (error) {
-          return res.status(500).send("Error downloading image from Firebase Storage: " + error);
+          return res
+            .status(500)
+            .send("Error downloading image from Firebase Storage: " + error);
         }
       } else if (file.content) {
         //not supported return error
@@ -83,28 +87,42 @@ app.post("/v1/compile", async (req: Request, res: Response) => {
         "temp",
         `${path.basename(file.file, ".tex")}.pdf`
       );
+      const logFilePath = path.join(
+        __dirname,
+        "temp",
+        `${path.basename(file.file, ".tex")}.log`
+      );
+
       try {
         await compileLaTeX(filePath, outputFilePath);
         // After successful compilation, upload the PDF
         const bucket = fbstorage.bucket();
-        await bucket.upload(outputFilePath, {
-          destination: `users/${decodedToken.uid}/${reloutputpath}`,
-          metadata: {
-            contentType: "application/pdf",
-            public: true,
-          },
-        });
-
+        await Promise.all([
+          bucket.upload(outputFilePath, {
+            destination: `users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.pdf`,
+            metadata: {
+              contentType: "application/pdf",
+              public: true,
+            },
+          }),
+          bucket.upload(logFilePath, {
+            destination: `users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.log`,
+            metadata: {
+              contentType: "text/plain",
+              public: true,
+            },
+          }),
+        ]);
         // Cleanup or further actions
         reset();
-        return res.send(
-          `File uploaded to: users/${decodedToken.uid}/${reloutputpath}`
-        );
+        return res.send(`users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.pdf`);
       } catch (compileError) {
         console.error("Error during compilation:", (compileError as any).error);
         return res
           .status(500)
-          .send("Error during LaTeX compilation: " + (compileError as any).stderr);
+          .send(
+            "Error during LaTeX compilation: " + (compileError as any).stderr
+          );
       }
     }
   }
@@ -128,9 +146,14 @@ const compileLaTeX = (filePath: string, outputFilePath: unknown) => {
 };
 
 function reset() {
-  fs.rmdirSync(path.join(__dirname, "temp"), { recursive: true });
-  fs.mkdirSync(path.join(__dirname, "temp"));
+  const tempPath = path.join(__dirname, "temp");
+  fs.rm(tempPath, { recursive: true, force: true }, err => {
+    if (err) console.error("Error removing temp directory:", err);
+    fs.mkdirSync(tempPath);
+  });
 }
+
+
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {

@@ -94,9 +94,24 @@ app.post("/v1/compile", async (req: Request, res: Response) => {
       );
 
       try {
-        await compileLaTeX(filePath, outputFilePath);
+        try{
+          await compileLaTeX(filePath, outputFilePath);
+        } catch (error) {
+          console.error("Error during compilation, log will be uploaded");
+          const bucket = fbstorage.bucket();
+          await bucket.upload(logFilePath, {
+            destination: `users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.log`,
+            metadata: {
+              contentType: "text/plain",
+              public: true,
+            },
+          });
+          reset();
+          return res.status(500).send("Error during LaTeX compilation: " + (error as any).stderr);
+        }
         // After successful compilation, upload the PDF
         const bucket = fbstorage.bucket();
+        console.log("uploading log file"),
         await Promise.all([
           bucket.upload(outputFilePath, {
             destination: `users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.pdf`,

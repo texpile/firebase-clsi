@@ -5,6 +5,7 @@ import path from "path";
 import admin from "firebase-admin";
 import { DecodedIdToken } from "firebase-admin/lib/auth/token-verifier";
 import { cert } from "firebase-admin/app";
+console.log("Starting server...");
 admin.initializeApp({
   credential: cert(
     JSON.parse(
@@ -29,7 +30,7 @@ interface File {
 }
 
 app.post("/v1/compile", async (req: Request, res: Response) => {
-  reset();
+  await reset();
 
   const auth = req.headers?.authorization?.split(" ")[1];
 
@@ -106,12 +107,11 @@ app.post("/v1/compile", async (req: Request, res: Response) => {
               public: true,
             },
           });
-          reset();
+          await reset();
           return res.status(500).send("Error during LaTeX compilation: " + (error as any).stderr);
         }
         // After successful compilation, upload the PDF
         const bucket = fbstorage.bucket();
-        console.log("uploading log file"),
         await Promise.all([
           bucket.upload(outputFilePath, {
             destination: `users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.pdf`,
@@ -129,10 +129,10 @@ app.post("/v1/compile", async (req: Request, res: Response) => {
           }),
         ]);
         // Cleanup or further actions
-        reset();
+        await reset();
         return res.send(`users/${decodedToken.uid}/${reloutputpath}${path.basename(file.file, ".tex")}.pdf`);
       } catch (compileError) {
-        console.error("Error during compilation:", (compileError as any).error);
+        console.error("Error during compilation:", compileError);
         return res
           .status(500)
           .send(
@@ -160,13 +160,16 @@ const compileLaTeX = (filePath: string, outputFilePath: unknown) => {
   });
 };
 
-function reset() {
+async function reset() {
   const tempPath = path.join(__dirname, "temp");
-  fs.rm(tempPath, { recursive: true, force: true }, err => {
-    if (err) console.error("Error removing temp directory:", err);
-    fs.mkdirSync(tempPath);
-  });
+  try {
+    await fs.promises.rm(tempPath, { recursive: true, force: true });
+    await fs.promises.mkdir(tempPath);
+  } catch (err) {
+    console.error("Error resetting temp directory:", err);
+  }
 }
+
 
 
 const PORT = process.env.PORT || 8080;

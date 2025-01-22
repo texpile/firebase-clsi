@@ -3,10 +3,6 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && docker build -t latexcompiler .",
-    "dev": "./setenv.sh",
-    "docker": "npm run build && docker run -p 8080:8080 --env-file .env -d latexcompiler",
-    "push": "tsc && docker buildx build -t fxml/latexcompiler --platform linux/amd64 . && docker tag fxml/latexcompiler us-west1-docker.pkg.dev/quickprose-9b693/latex-compiler/compiler && docker push us-west1-docker.pkg.dev/quickprose-9b693/latex-compiler/compiler"
   },
   "dependencies": {
     "@types/express": "^4.17.21",
